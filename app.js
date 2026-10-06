@@ -13,7 +13,9 @@
     scope: 'day',        // ランキング: day | all
     tripId: null,        // 入力中の便（端末ごとに記憶）
     logBoat: 'all',
-    showDeleted: false
+    showDeleted: false,
+    tideMode: 'auto',    // auto（GPSで最寄り港）| manual（港を手動選択）
+    tidePort: null       // 手動選択の港 'pc-hc'
   }, readUI());
   if (ui.tab === 'admin') ui.tab = 'rank';
   ui.selMode = false; ui.sel = {};          // 複数選択は起動時に必ず解除
@@ -133,6 +135,9 @@
     var main = $('#main');
     var html = ({ rank: viewRank, input: viewInput, log: viewLog, trips: viewTrips, sum: viewSum, admin: viewAdmin }[ui.tab] || viewRank)();
     main.innerHTML = installHint() + html;
+    if (window.Tide) {                                  // GPSはランキング画面を開いている間だけ
+      if (ui.tab === 'rank' && ui.tideMode !== 'manual') Tide.startWatch(); else Tide.stopWatch();
+    }
     saveUI();
   }
 
@@ -219,7 +224,129 @@
     }).join('');
     return head + '<div class="boards' + (duel ? ' duel' : '') + '">' + boards + '</div>' +
       '<p class="formula">SCORE ＝ 総ポイント ÷ 人時（人数×実釣時間）× 1000<br>' +
-      (all ? '全日程の合計で計算' : md(ui.date) + ' の全便合計で計算') + '</p>';
+      (all ? '全日程の合計で計算' : md(ui.date) + ' の全便合計で計算') + '</p>' + tideCard();
+  }
+
+  /* ---------- 🌊 潮汐（ランキングの下） ---------- */
+  function tideDate() { return (ui.scope === 'all' || !ui.date) ? S.localDate() : ui.date; }
+  function upcomingDates() {
+    var today = S.localDate(), lim = new Date(Date.now() + 30 * 86400000), limS = lim.getFullYear() + '-' + String(lim.getMonth() + 1).padStart(2, '0') + '-' + String(lim.getDate()).padStart(2, '0');
+    var ds = S.days().map(function (d) { return d.event_date; }).filter(function (d) { return d >= today && d <= limS; });
+    if (ds.indexOf(today) < 0) ds.unshift(today);
+    return ds.sort();
+  }
+
+  function tideCard() {
+    if (!window.Tide) return '';
+    var T = window.Tide;
+    T.loadPorts();
+    var date = tideDate();
+    var head = '<h2 class="sec" style="margin-top:22px">🌊 潮汐（参考値）</h2>';
+    if (!T.ports) {
+      return head + '<div class="panel small muted">' + (T.portsState === 'error'
+        ? '潮汐データを取得できません。電波のある場所で開くと、周辺の港のデータがこの端末に保存されます。'
+        : '潮汐データを読み込み中…') + '</div>';
+    }
+    var port = T.pick(ui.tideMode, ui.tidePort);
+    if (!port) return '';
+    T.ensure(port, date);
+    T.prefetch(upcomingDates());
+    var d = T.day(port, date);
+
+    var where;
+    if (ui.tideMode === 'manual') where = '手動で選択';
+    else if (T.posState === 'ok' && T.pos) where = '📍 現在地から約' + (Math.round(T.distKm(T.pos, port) * 10) / 10) + 'km';
+    else if (T.posState === 'waiting') where = '📍 現在地を確認中…';
+    else if (T.posState === 'denied') where = '位置情報オフ：基本の港を表示';
+    else where = '基本の港';
+
+    var top = '<div class="tide-head"><button class="tide-port" type="button" data-action="tide-pick">' + esc(port.name) + ' <span aria-hidden="true">▾</span></button>' +
+      '<span class="tide-where">' + esc(where) + '</span>' +
+      (d && d.title ? '<span class="tide-title">' + esc(d.title) + '</span>' : '') + '</div>';
+
+    if (!d) {
+      return head + '<div class="panel tide">' + top + '<p class="small muted" style="margin:10px 0 0">' +
+        (T.isLoading(port, date) ? md(date) + ' の潮汐を読み込み中…' : md(date) + ' の潮汐はまだこの端末に保存されていません。電波のある場所で開くと自動で保存されます。') + '</p></div>';
+    }
+    var ev = function (list) {
+      return list.length ? list.map(function (e) { return '<span class="num">' + esc(e.time) + '</span> <b class="num">' + e.cm + '</b><small>cm</small>'; }).join('　') : '—';
+    };
+    return head + '<div class="panel tide">' + top +
+      '<div class="small muted" style="margin-top:2px">' + md(date) + '(' + wd(date) + ')' + (d.sunrise ? '　日の出 ' + esc(d.sunrise) + '　日の入 ' + esc(d.sunset) : '') + '</div>' +
+      tideSvg(d, date) +
+      '<div class="tide-ev"><div><span class="tag hi">満潮</span>' + ev(d.highs) + '</div><div><span class="tag lo">干潮</span>' + ev(d.lows) + '</div></div>' +
+      '<p class="tide-note">出典：tide736.net（潮汐調和定数からの推算値）。航海には海上保安庁の潮汐表を使用してください。</p></div>';
+  }
+
+  function tideSvg(d, date) {
+    var W = 360, H = 150, L = 30, R = 16, Tp = 12, B = 22, pw = W - L - R, ph = H - Tp - B;
+    var se = d.series || []; if (se.length < 2) return '';
+    var cms = se.map(function (p) { return p[1]; });
+    var mn = Math.min.apply(null, cms), mx = Math.max.apply(null, cms);
+    var pad = Math.max(10, (mx - mn) * 0.12); mn -= pad; mx += pad;
+    var x = function (m) { return L + m / 1440 * pw; }, y = function (cm) { return Tp + (1 - (cm - mn) / (mx - mn)) * ph; };
+    var line = se.map(function (p, i) { return (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1); }).join(' ');
+    var area = line + ' L' + x(se[se.length - 1][0]).toFixed(1) + ' ' + (Tp + ph) + ' L' + x(se[0][0]).toFixed(1) + ' ' + (Tp + ph) + ' Z';
+    var out = '<svg class="tide-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="潮位グラフ">';
+    // 便の時間帯（実釣時間）を薄く表示
+    S.trips(date).forEach(function (t) {
+      var s0 = C.toMinutes(t.start_time), e0 = C.toMinutes(t.end_time);
+      if (s0 === null || e0 === null) return; if (e0 <= s0) e0 = 1440;
+      out += '<rect x="' + x(s0).toFixed(1) + '" y="' + Tp + '" width="' + (x(e0) - x(s0)).toFixed(1) + '" height="' + ph + '" fill="var(--signal)" opacity="0.10"/>';
+    });
+    // 目盛り
+    [0, 6, 12, 18, 24].forEach(function (h) {
+      out += '<line x1="' + x(h * 60) + '" y1="' + Tp + '" x2="' + x(h * 60) + '" y2="' + (Tp + ph) + '" stroke="var(--line)" stroke-width="1"/>' +
+        '<text x="' + x(h * 60) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" fill="var(--ink-2)">' + h + '時</text>';
+    });
+    var step = (mx - mn) > 250 ? 100 : 50;
+    for (var v = Math.ceil(mn / step) * step; v <= mx; v += step) {
+      out += '<text x="' + (L - 4) + '" y="' + (y(v) + 3) + '" font-size="9" text-anchor="end" fill="var(--ink-2)">' + v + '</text>';
+    }
+    out += '<path d="' + area + '" fill="var(--steel)" opacity="0.28"/><path d="' + line + '" fill="none" stroke="var(--sea)" stroke-width="2.4" stroke-linejoin="round"/>';
+    // 満潮・干潮の点
+    (d.highs || []).concat(d.lows || []).forEach(function (e) {
+      var m = C.toMinutes(e.time); if (m === null) return;
+      out += '<circle cx="' + x(m).toFixed(1) + '" cy="' + y(e.cm).toFixed(1) + '" r="3.4" fill="var(--surface)" stroke="var(--sea)" stroke-width="2"/>';
+    });
+    // 今の時刻と潮位
+    if (date === S.localDate()) {
+      var now = new Date(), nm = now.getHours() * 60 + now.getMinutes(), cur = null;
+      for (var i = 1; i < se.length; i++) {
+        if (se[i][0] >= nm) { var a = se[i - 1], b = se[i]; cur = a[1] + (b[1] - a[1]) * (nm - a[0]) / Math.max(1, b[0] - a[0]); break; }
+      }
+      out += '<line x1="' + x(nm).toFixed(1) + '" y1="' + Tp + '" x2="' + x(nm).toFixed(1) + '" y2="' + (Tp + ph) + '" stroke="var(--signal)" stroke-width="2"/>';
+      if (cur !== null) {
+        var lx = Math.min(Math.max(x(nm), L + 26), W - R - 26);
+        out += '<circle cx="' + x(nm).toFixed(1) + '" cy="' + y(cur).toFixed(1) + '" r="4.5" fill="var(--signal)"/>' +
+          '<rect x="' + (lx - 26) + '" y="0" width="52" height="15" rx="7" fill="var(--signal)"/>' +
+          '<text x="' + lx + '" y="11" font-size="10" font-weight="700" text-anchor="middle" fill="#fff">今 ' + Math.round(cur) + 'cm</text>';
+      }
+    }
+    return out + '</svg>';
+  }
+
+  function openTidePicker() {
+    var T = window.Tide; if (!T || !T.ports) return;
+    var list = T.near(T.reference(), 40);
+    var html = '<h3>潮汐を表示する港</h3>' +
+      '<button class="btn ' + (ui.tideMode !== 'manual' ? 'dark' : 'ghost') + ' block" type="button" data-k="auto">📍 現在地の最寄り港に自動で切り替え</button>' +
+      '<p class="small muted">' + (T.pos ? '現在地から近い順' : '基本の港（岩国）から近い順') + '</p>' +
+      list.map(function (x) {
+        var on = ui.tideMode === 'manual' && ui.tidePort === T.key(x.port);
+        return '<button class="logitem" type="button" data-k="' + T.key(x.port) + '"' + (on ? ' style="border-color:var(--sea);box-shadow:0 0 0 2px var(--sea) inset"' : '') + '>' +
+          '<span class="l-main"><div class="l-size">' + esc(x.port.name) + '</div></span><span class="small muted">約' + (Math.round(x.km * 10) / 10) + 'km</span></button>';
+      }).join('') +
+      '<div class="actions"><button class="btn ghost block" type="button" data-k="close">閉じる</button></div>';
+    openSheet(html, function (root) {
+      root.onclick = function (e) {
+        var b = e.target.closest('[data-k]'); if (!b) return;
+        var k = b.dataset.k;
+        if (k === 'auto') { ui.tideMode = 'auto'; ui.tidePort = null; T.current = null; }
+        else if (k !== 'close') { ui.tideMode = 'manual'; ui.tidePort = k; }
+        closeSheet();
+      };
+    });
   }
   function stat(k, v) { return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>'; }
   function emptyBox(msg, btn, action, extra) {
@@ -786,6 +913,7 @@
         ask('この端末のデータをすべて消して初期状態に戻します。先にバックアップを推奨します。', '初期化する', function () { S.resetLocal(); ui.tripId = null; ui.date = null; render(); }, true);
         break;
       case 'hide-a2hs': ui.hideA2HS = true; render(); break;
+      case 'tide-pick': openTidePicker(); break;
       case 'invite-copy': case 'invite-line': {
         var code = ($('#iv-code').value || '').trim();
         if (!code) return toast('記録係用コードを入力してください', { kind: 'err' });
@@ -1001,6 +1129,10 @@
     if (kind === 'status') { renderSync(); return; }
     if (sheetOpen) { renderSync(); return; }     // 編集中のシートは壊さない（閉じた時に再描画）
     if (!$('#adminBtn').hidden) render();
+  });
+
+  if (window.Tide) Tide.init(function () {
+    if (!sheetOpen && ui.tab === 'rank' && !$('#adminBtn').hidden) render();
   });
 
   S.init().then(function (st) {

@@ -1,10 +1,10 @@
 /* サワラ焼肉CUP Service Worker
  * アプリ本体はキャッシュして圏外でも起動できるようにする。
  * データ通信（Supabase）はキャッシュしない。 */
-const VERSION = 'scup-v1.1.0';
+const VERSION = 'scup-v1.2.0';
 const SHELL = [
   './', './index.html', './app.css', './config.js', './calc.js', './store.js', './app.js',
-  './manifest.webmanifest', './icon-192.png', './apple-touch-icon.png', './schema.sql'
+  './tide.js', './manifest.webmanifest', './icon-192.png', './apple-touch-icon.png', './schema.sql'
 ];
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 
@@ -20,6 +20,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.hostname.endsWith('supabase.co') || url.hostname.endsWith('supabase.in')) return; // データは常にネットワーク
+  if (url.origin === location.origin && url.pathname.startsWith('/api/')) return;            // 潮汐APIはアプリ側で保存する
 
   // 自サイトのファイル：ネットワーク優先（更新を即反映）→ 失敗時キャッシュ
   if (url.origin === location.origin) {

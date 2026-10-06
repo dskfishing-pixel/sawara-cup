@@ -179,6 +179,20 @@ textarea.input { min-height: 80px; resize: vertical; }
 .board .b-none { color: var(--ink-2); font-size: 14px; margin-top: 8px; }
 .formula { font-size: 13px; color: var(--ink-2); margin-top: 12px; text-align: center; }
 
+/* ---------- 潮汐 ---------- */
+.tide-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tide-port { border: 0; background: var(--sea); color: #fff; font-weight: 900; font-size: 18px; border-radius: 10px; padding: 6px 12px; min-height: 40px; }
+.tide-where { font-size: 13px; color: var(--ink-2); font-weight: 700; }
+.tide-title { margin-left: auto; font-weight: 900; font-size: 15px; background: var(--silver); border-radius: 999px; padding: 3px 12px; }
+.tide-svg { display: block; width: 100%; height: auto; margin: 8px 0 4px; }
+.tide-ev { display: grid; gap: 6px; font-size: 15px; }
+.tide-ev .num { font-size: 20px; }
+.tide-ev small { font-size: 12px; color: var(--ink-2); margin-left: 1px; }
+.tide-ev .tag { display: inline-block; width: 44px; text-align: center; font-size: 12px; font-weight: 900; border-radius: 6px; padding: 1px 0; margin-right: 8px; }
+.tide-ev .tag.hi { background: var(--sea); color: #fff; }
+.tide-ev .tag.lo { background: var(--silver); color: var(--ink); }
+.tide-note { font-size: 11px; color: var(--ink-2); margin: 8px 0 0; }
+
 /* ---------- 釣果入力 ---------- */
 .tripbar {
   display: flex; align-items: center; gap: 10px;
