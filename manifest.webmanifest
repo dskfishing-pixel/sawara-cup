@@ -1,0 +1,16 @@
+{
+  "name": "サワラ焼肉CUP",
+  "short_name": "サワラCUP",
+  "description": "サワラ釣り大会のリアルタイムスコア管理",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B3A5B",
+  "theme_color": "#0B3A5B",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
