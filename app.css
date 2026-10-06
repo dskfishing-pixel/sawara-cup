@@ -244,6 +244,21 @@ textarea.input { min-height: 80px; resize: vertical; }
 .logitem .l-sub { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logitem .l-pt { font-family: var(--num); font-weight: 800; font-size: 26px; }
 .logitem.deleted { opacity: .55; text-decoration: line-through; }
+.logitem .chk {
+  flex: none; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line);
+  display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; color: #fff;
+}
+.logitem.picked { border-color: var(--sea); box-shadow: 0 0 0 2px var(--sea) inset; }
+.logitem.picked .chk { background: var(--sea); border-color: var(--sea); }
+.logitem.deleted.picked { opacity: .85; }
+.selspace { height: 76px; }
+.selbar {
+  position: fixed; left: 0; right: 0; z-index: 25;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  background: var(--surface); border-top: 2px solid var(--sea);
+  box-shadow: 0 -6px 18px rgba(4,19,31,.12);
+}
 .pending-mark { font-size: 12px; color: var(--signal); font-weight: 800; }
 
 .trippick { display: grid; gap: 10px; }

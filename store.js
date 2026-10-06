@@ -123,7 +123,14 @@
     uuid: uuid, localDate: localDate, DEFAULT_POINTS: DEFAULT_POINTS,
 
     onChange: function (fn) { listeners.push(fn); },
+    /** まとめて変更：途中の再描画を止め、最後に1回だけ画面を更新 */
+    batch: function (fn) {
+      this._mute = (this._mute || 0) + 1;
+      try { fn(); } finally { this._mute--; }
+      if (!this._mute) this.emit('data');
+    },
     emit: function (kind, payload) {
+      if (this._mute && (kind || 'data') === 'data') return;
       listeners.forEach(function (fn) { try { fn(kind || 'data', payload); } catch (e) { console.error(e); } });
     },
 

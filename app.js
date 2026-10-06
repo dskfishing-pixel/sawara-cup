@@ -16,6 +16,7 @@
     showDeleted: false
   }, readUI());
   if (ui.tab === 'admin') ui.tab = 'rank';
+  ui.selMode = false; ui.sel = {};          // 複数選択は起動時に必ず解除
 
   function readUI() { try { return JSON.parse(localStorage.getItem(LS_UI)) || {}; } catch (e) { return {}; } }
   function saveUI() { try { localStorage.setItem(LS_UI, JSON.stringify(ui)); } catch (e) {} }
@@ -250,7 +251,7 @@
         '</button>';
     }).join('');
 
-    var recent = list.slice(0, 5).map(logItem).join('');
+    var recent = list.slice(0, 5).map(function (c) { return logItem(c); }).join('');
     return '<div class="tripbar"><div class="t-main"><div class="t-boat">' + esc(boatName(trip.boat_id)) + ' ' + esc(trip.trip) + '</div>' +
       '<div class="t-sub">' + md(trip.event_date) + '(' + wd(trip.event_date) + ') ' + t5(trip.start_time) + '–' + t5(trip.end_time) + ' ' + trip.people + '名</div></div>' +
       '<button class="btn sm" type="button" data-action="pick-trip">便を変更</button></div>' +
@@ -317,8 +318,12 @@
     toast('復元しました', { kind: 'ok' });
   }
 
-  function logItem(c) {
-    return '<button type="button" class="logitem' + (c.deleted_at ? ' deleted' : '') + '" data-action="edit-catch" data-id="' + c.id + '">' +
+  /** sel を渡すと選択モード（タップで選択切替）、省略すると通常（タップで編集） */
+  function logItem(c, sel) {
+    var selecting = typeof sel === 'boolean';
+    return '<button type="button" class="logitem' + (c.deleted_at ? ' deleted' : '') + (selecting && sel ? ' picked' : '') + '" data-action="' +
+      (selecting ? 'sel-toggle' : 'edit-catch') + '" data-id="' + c.id + '"' + (selecting ? ' aria-pressed="' + sel + '"' : '') + '>' +
+      (selecting ? '<span class="chk" aria-hidden="true">' + (sel ? '✓' : '') + '</span>' : '') +
       '<span class="l-time">' + hm(c.caught_at) + '</span>' +
       '<span class="l-main"><div class="l-size">' + esc(c.size_category) + '</div>' +
       '<div class="l-sub">' + esc(boatName(c.boat_id)) + ' ' + esc(c.trip) + (c.memo ? '　📝' + esc(c.memo) : '') +
@@ -327,27 +332,52 @@
   }
 
   /* ---------- 📋 CatchLog ---------- */
-  function viewLog() {
-    if (!ui.date) return emptyBox('大会日がまだありません。', '⚙︎ 管理を開く', 'go-admin');
+  function logLists() {
     var tripIds = {};
     S.trips(ui.date).forEach(function (t) { tripIds[t.id] = true; });
     var all = S.data.catch_logs.filter(function (c) {
       return tripIds[c.trip_id] && (ui.logBoat === 'all' || c.boat_id === ui.logBoat);
     }).sort(function (a, b) { return a.caught_at < b.caught_at ? 1 : -1; });
-    var live = all.filter(function (c) { return !c.deleted_at; });
-    var dead = all.filter(function (c) { return c.deleted_at; });
+    return { live: all.filter(function (c) { return !c.deleted_at; }), dead: all.filter(function (c) { return c.deleted_at; }) };
+  }
+  function selectedIds() {
+    return Object.keys(ui.sel || {}).filter(function (id) { return ui.sel[id] && S.find('catch_logs', id); });
+  }
+
+  function viewLog() {
+    if (!ui.date) return emptyBox('大会日がまだありません。', '⚙︎ 管理を開く', 'go-admin');
+    var L = logLists(), live = L.live, dead = L.dead, selMode = !!ui.selMode;
     var pts = C.r2(live.reduce(function (s, c) { return s + Number(c.points); }, 0));
+    var item = function (c) { return selMode ? logItem(c, !!ui.sel[c.id]) : logItem(c); };
 
     var chips = '<div class="row" style="flex-wrap:wrap;margin-bottom:10px">' +
       ['all'].concat(S.boats().map(function (b) { return b.id; })).map(function (id) {
         return '<button class="chip" type="button" data-action="log-boat" data-id="' + id + '" aria-pressed="' + (ui.logBoat === id) + '">' +
           (id === 'all' ? '全船' : esc(boatName(id))) + '</button>';
       }).join('') + '</div>';
-    var head = '<p class="small muted" style="margin:0 0 8px">' + md(ui.date) + '　' + live.length + '本　' + C.fmtPoints(pts) + 'pt　（タップで編集・削除）</p>';
-    var body = live.length ? live.map(logItem).join('') : '<div class="panel empty"><p class="muted">この日の記録はまだありません</p></div>';
+
+    var head = selMode
+      ? '<div class="row" style="margin:0 0 8px"><span class="grow small"><b>選択モード</b>　タップで選択</span>' +
+        '<button class="btn sm" type="button" data-action="sel-all">すべて選択</button>' +
+        '<button class="btn sm ghost" type="button" data-action="sel-exit">やめる</button></div>'
+      : '<div class="row" style="margin:0 0 8px"><span class="grow small muted">' + md(ui.date) + '　' + live.length + '本　' + C.fmtPoints(pts) + 'pt　タップで編集</span>' +
+        ((live.length || dead.length) ? '<button class="btn sm" type="button" data-action="sel-start">選択して削除</button>' : '') + '</div>';
+
+    var body = live.length ? live.map(item).join('') : '<div class="panel empty"><p class="muted">この日の記録はまだありません</p></div>';
     var deleted = dead.length ? '<h2 class="sec"><button class="btn sm ghost" type="button" data-action="toggle-deleted">削除済み ' + dead.length + '件を' + (ui.showDeleted ? '隠す' : '表示') + '</button></h2>' +
-      (ui.showDeleted ? dead.map(logItem).join('') : '') : '';
-    return chips + head + body + deleted;
+      (ui.showDeleted ? dead.map(item).join('') : '') : '';
+
+    var bar = '';
+    if (selMode) {
+      var ids = selectedIds();
+      var nLive = ids.filter(function (id) { return !S.find('catch_logs', id).deleted_at; }).length, nDead = ids.length - nLive;
+      bar = '<div class="selspace"></div><div class="selbar"><span class="grow"><b class="num" style="font-size:24px">' + ids.length + '</b> 件選択中</span>' +
+        (nLive ? '<button class="btn sm danger" type="button" data-action="sel-delete">削除</button>' : '') +
+        (nDead ? '<button class="btn sm" type="button" data-action="sel-restore">復元</button>' : '') +
+        (isAdmin() && ids.length ? '<button class="btn sm dark" type="button" data-action="sel-purge">完全削除</button>' : '') +
+        (ids.length ? '' : '<span class="small muted">釣果をタップして選択</span>') + '</div>';
+    }
+    return chips + head + body + deleted + bar;
   }
 
   function editCatch(id) {
@@ -453,7 +483,8 @@
         (f.people ? '　人時 <b class="num" style="font-size:22px">' + C.r2(f.people * h) + '</b>' : '') +
         (C.toMinutes(f.end_time) < C.toMinutes(f.start_time) ? '　<span class="muted">（日付またぎ）</span>' : '') + '</p>' +
         '<div class="actions"><button class="btn primary block" type="button" id="tr-save">' + (t ? '保存する' : '便を作成') + '</button>' +
-        (t ? '<button class="btn danger block" type="button" id="tr-del">この便を削除</button>' : '') +
+        (t ? '<button class="btn danger block" type="button" id="tr-del">' +
+          (nCatch && isAdmin() ? 'この便と釣果' + nCatch + '件をまとめて削除' : 'この便を削除') + '</button>' : '') +
         '<button class="btn ghost block" type="button" id="tr-cancel">閉じる</button></div>';
     }
     function bind(root) {
@@ -491,7 +522,18 @@
       };
       var d = root.querySelector('#tr-del');
       if (d) d.onclick = function () {
-        if (nCatch) return toast('釣果が' + nCatch + '件ある便は削除できません。先に釣果を移動してください', { kind: 'err', ms: 4500 });
+        if (nCatch && !isAdmin()) return toast('釣果が' + nCatch + '件ある便は削除できません。釣果を別の便に移すか、管理者に「まとめて削除」を頼んでください', { kind: 'err', ms: 5000 });
+        if (nCatch) {
+          return ask('「' + boatName(t.boat_id) + ' ' + t.trip + '」の便と、釣果' + nCatch + '件（削除済みを含む）をすべて完全に削除します。元に戻せません。', 'まとめて削除', function () {
+            var list = S.data.catch_logs.filter(function (c) { return c.trip_id === t.id; });
+            S.batch(function () {
+              list.forEach(function (c) { S.remove('catch_logs', c.id); });   // 先に釣果を消してから
+              S.remove('trips', t.id);                                       // 便を消す（送信もこの順番）
+            });
+            if (ui.tripId === t.id) ui.tripId = null;
+            closeSheet(); toast('便と釣果' + list.length + '件を削除しました');
+          }, true);
+        }
         ask('この便を削除しますか？', '削除する', function () {
           S.remove('trips', t.id); if (ui.tripId === t.id) ui.tripId = null;
           closeSheet(); toast('便を削除しました');
@@ -679,9 +721,9 @@
    * ========================================================= */
   function onClick(e) {
     var tabBtn = e.target.closest('#tabbar button');
-    if (tabBtn) { ui.tab = tabBtn.dataset.tab; render(); window.scrollTo(0, 0); return; }
+    if (tabBtn) { ui.tab = tabBtn.dataset.tab; ui.selMode = false; ui.sel = {}; render(); window.scrollTo(0, 0); return; }
     var dateBtn = e.target.closest('#datebar [data-date]');
-    if (dateBtn) { ui.date = dateBtn.dataset.date; ui.scope = 'day'; render(); return; }
+    if (dateBtn) { ui.date = dateBtn.dataset.date; ui.scope = 'day'; ui.sel = {}; render(); return; }
     if (e.target.closest('#datebar [data-scope]')) { ui.scope = 'all'; render(); return; }
 
     var b = e.target.closest('[data-action]'); if (!b || b.disabled) return;
@@ -696,7 +738,43 @@
       case 'new-trip': editTrip(null); break;
       case 'edit-trip': editTrip(id); break;
       case 'edit-catch': editCatch(id); break;
-      case 'log-boat': ui.logBoat = id; render(); break;
+      case 'log-boat': ui.logBoat = id; ui.sel = {}; render(); break;
+      case 'sel-start': ui.selMode = true; ui.sel = {}; render(); break;
+      case 'sel-exit': ui.selMode = false; ui.sel = {}; render(); break;
+      case 'sel-toggle': ui.sel[id] = !ui.sel[id]; render(); break;
+      case 'sel-all': {
+        var LL = logLists(), vis = LL.live.concat(ui.showDeleted ? LL.dead : []);
+        var allOn = vis.length && vis.every(function (c) { return ui.sel[c.id]; });
+        ui.sel = {}; if (!allOn) vis.forEach(function (c) { ui.sel[c.id] = true; });
+        render(); break;
+      }
+      case 'sel-delete': {
+        var del = selectedIds().filter(function (x) { return !S.find('catch_logs', x).deleted_at; });
+        ask(del.length + '件の釣果を削除します。削除済みとして残るので、あとで復元できます。', '削除する', function () {
+          var at = new Date().toISOString();
+          S.batch(function () { del.forEach(function (x) { S.upsert('catch_logs', Object.assign({}, S.find('catch_logs', x), { deleted_at: at })); }); });
+          ui.selMode = false; ui.sel = {}; render();
+          toast(del.length + '件を削除しました', { ms: 6000, actions: [{ label: '元に戻す', fn: function () {
+            S.batch(function () { del.forEach(function (x) { var c = S.find('catch_logs', x); if (c) S.upsert('catch_logs', Object.assign({}, c, { deleted_at: null })); }); });
+            toast('元に戻しました', { kind: 'ok' });
+          } }] });
+        }, true);
+        break;
+      }
+      case 'sel-restore': {
+        var res = selectedIds().filter(function (x) { return S.find('catch_logs', x).deleted_at; });
+        S.batch(function () { res.forEach(function (x) { S.upsert('catch_logs', Object.assign({}, S.find('catch_logs', x), { deleted_at: null })); }); });
+        ui.selMode = false; ui.sel = {}; render(); toast(res.length + '件を復元しました', { kind: 'ok' });
+        break;
+      }
+      case 'sel-purge': {
+        var pg = selectedIds();
+        ask(pg.length + '件の釣果を完全に削除します。元に戻せません。', '完全に削除', function () {
+          S.batch(function () { pg.forEach(function (x) { S.remove('catch_logs', x); }); });
+          ui.selMode = false; ui.sel = {}; render(); toast(pg.length + '件を完全に削除しました');
+        }, true);
+        break;
+      }
       case 'toggle-deleted': ui.showDeleted = !ui.showDeleted; render(); break;
       case 'go-admin': ui.tab = 'admin'; render(); break;
       case 'back': ui.tab = 'rank'; render(); break;
