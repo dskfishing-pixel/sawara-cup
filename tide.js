@@ -13,6 +13,20 @@
   var EVAL_INTERVAL_MS = 120000;                         // 位置の再評価は最短2分おき
   var PREFETCH_RADIUS_KM = 25;
 
+  /**
+   * tide736 の緯度経度は「度.分」形式（例 33.57 = 33度57分）。
+   * 全港の小数部が 0.60 未満なら度分形式とみなして10進の度に直す。
+   */
+  function normPorts(raw) {
+    var list = (raw || []).filter(function (p) { return isFinite(p.lat) && isFinite(p.lon); });
+    var isDM = list.length > 0 && list.every(function (p) {
+      return [p.lat, p.lon].every(function (v) { var f = Math.abs(v) % 1; return f * 100 < 60 + 1e-6; });
+    });
+    if (!isDM) return list;
+    var conv = function (v) { var sgn = v < 0 ? -1 : 1, a = Math.abs(v), d = Math.floor(a + 1e-9), m = (a - d) * 100; return sgn * (d + m / 60); };
+    return list.map(function (p) { return Object.assign({}, p, { lat: conv(p.lat), lon: conv(p.lon) }); });
+  }
+
   function readLS(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   function key(p) { return p.pc + '-' + p.hc; }
@@ -45,7 +59,7 @@
       this.onUpdate = onUpdate || this.onUpdate;
       var cached = readLS(LS_PORTS, null);
       if (cached && cached.ports && cached.ports.length && Date.now() - cached.at < 30 * 86400000) {
-        this.ports = cached.ports; this.portsState = 'ok';
+        this.ports = normPorts(cached.ports); this.portsState = 'ok';
       }
       this.pruneOld();
     },
@@ -58,7 +72,7 @@
       this.portsState = 'loading';
       fetch('/api/tide?ports=' + PREFS).then(function (r) { return r.json(); }).then(function (j) {
         if (!j.ok || !j.ports || !j.ports.length) throw new Error(j.error || 'no ports');
-        self.ports = j.ports; self.portsState = 'ok';
+        self.ports = normPorts(j.ports); self.portsState = 'ok';
         writeLS(LS_PORTS, { at: Date.now(), ports: j.ports });
         self.onUpdate();
       }).catch(function () {
@@ -185,7 +199,8 @@
       if (changed) writeLS(LS_DATA, this.data);
     },
 
-    key: key
+    key: key,
+    normPorts: normPorts
   };
 
   window.Tide = Tide;
